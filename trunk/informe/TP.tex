@@ -18,7 +18,7 @@
 \linespread{1.3}
 %indica que el encabezado lo voy a personalizar con \markboth{}{}
 \pagestyle{myheadings}
-\markboth{}{Sistemas Operativos - Trabajo Práctico Minix - 2da Entrega}
+\markboth{}{Sistemas Operativos - Trabajo Práctico Minix - Trabajo final}
 
 \textwidth = 380pt
 \textheight = 630pt
@@ -36,13 +36,11 @@
 \begin{document}
 
 \materia{Sistemas Operativos}
-\submateria{Primer Cuatrimestre de 2005}
 \titulo{Trabajo Pr'actico Minix}
 \subtitulo{Ejercicios Optativos}
 
-\integrante{Jonathan Chiocchio}{849/02}{jonycobain@yahoo.com.ar}
-\integrante{Gabriel Honor'e}{503/03}{ghonore@tutopia.com}
-\integrante{Gabriel Tursi}{699/02}{gabrieltursi@hotmail.com}
+\integrante{Valdez Miguel Angel}{498/02}{crack57ar@gmail.com}
+\integrante{Di Vincenzo}{284/02}{jdivincenzo@gmail.com}
 
 \maketitle
 
@@ -57,7 +55,7 @@
 \subsection*{Enunciado}
 
 \begin{centering}
-\large\bf Sistemas Operativos - Primer Cuatrimestre 2005 \\
+\large\bf - Sistemas Operativos -\\
 \large\bf Trabajo Pr\'actico Minix \\
 \end{centering}
 
@@ -432,16 +430,26 @@ Decidimos implementar una solución al problema de los filósofos chinos mediante 
 Para solucionar este problema proponemos lo siguiente:\\
 el principal problema aquí es que puede ocurrir una espera circular. Si conseguimos evitar este tipo de espera el problema comentado en el párrafo anterior desaparece. Una forma de hacerlo es haciendo que un filósofo se comporte de forma distinta al resto, en el sentido de que intenta tomar los palitos en el orden inverso al resto de los filósofos.
 
+%de aca en adelante se debe modificar
+
 En nuestra implementación los filósofos se numeran del 0 al 4, al igual que los palitos, siendo el \emph{i-ésimo} palito el que se encuentra a la izquierda del filósofo $i$ y el $(i+1)$-ésimo palito el que se encuentra a su derecha (en el caso del filósofo 0 el de su izquierda es el palito 4, y en el caso del filósofo 4 el palito a su derecha es el 0).
 
 El código de nuestra resolución del problema de los filósofos chinos es el siguiente (omitimos los \verb@printf@ que muestran el proceso paso a paso para mayor claridad):
 
 \begin{verbatim}
-#define NUM_FILOSOFOS	5
-#define NUM_PLATOS_DE_ARROZ_POR_FILOSOFO	50
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <string.h>
+#include <lib.h>
+#include <semaforo.h>
 
-int semaforos[NUM_FILOSOFOS];	/* Semaforos para los palitos */
 
+#define NUM_FILOSOFOS 5
+#define NUM_PLATOS_DE_ARROZ_POR_FILOSOFO 1
+char* sem_names[NUM_FILOSOFOS]={"A","B","C","D","E"}; /* Semaforos para los palitos */
 void filosofoNoUltimo(int i);
 void filosofoUltimo();
 void piensa();
@@ -451,65 +459,70 @@ void filosofoNoUltimo(int i)
 {
 	/* Cantidad de veces que el filosofo va a comer */
 	int contador = NUM_PLATOS_DE_ARROZ_POR_FILOSOFO;
-
 	/* Al iniciar el proceso adquirimos el derecho a utilizar los */
 	/* semaforos creados e inicializados por el proceso padre */
-	crear_sem(i, 1);
-	crear_sem(i + 1, 1);
-
+	
+	semasign(sem_names[i]);
+	semasign(sem_names[i+1]);
+	
 	while (contador > 0)
 	{
 		piensa(i);
-
 		/* Tomamos primero el palito de la izquierda y luego el */
 		/* de la derecha */
-		p_sem(semaforos[i]);
-		p_sem(semaforos[i + 1]);
-
+		printf("- %i quiere tomar el palito de la izquierda \n",i);
+		semP(sem_names[i]);
+		printf("- %i quiere tomar el palito de la derecha \n",i);
+		semP(sem_names[i+1]);
+		
 		come(i);
-
 		/* Liberamos los palitos en el orden inverso */
-		v_sem(semaforos[i + 1]);
-		v_sem(semaforos[i]);
-
+		semV(sem_names[i + 1]);
+		printf("- %i dejo el palito de la derecha \n",i);
+		semV(sem_names[i]);
+		printf("- %i dejo el palito de la izquierda \n",i);
+		
 		contador--;
-	}
+ 	}
+	
+	semdasign(sem_names[i+1]);
+	semdasign(sem_names[i]);
+	
 }
 
 void filosofoUltimo()
 {
 	/* Cantidad de veces que el filosofo va a comer */
 	int contador = NUM_PLATOS_DE_ARROZ_POR_FILOSOFO;
-
 	/* Al iniciar el proceso adquirimos el derecho a utilizar los */
 	/* semaforos creados e inicializados por el proceso padre */
-	crear_sem(0, 1);
-	crear_sem(NUM_FILOSOFOS - 1, 1);
+	semasign(sem_names[0]);
+	semasign(sem_names[NUM_FILOSOFOS - 1]);	
 
 	while (contador > 0)
 	{
 		piensa(NUM_FILOSOFOS - 1);
-
 		/* Tomamos primero el palito de la derecha y luego el */
 		/* de la izquierda */
-		p_sem(semaforos[0]);
-		p_sem(semaforos[NUM_FILOSOFOS - 1]);
-
+		semP(sem_names[0]);
+		semP(sem_names[NUM_FILOSOFOS - 1]);
+		
 		come(NUM_FILOSOFOS - 1);
-
 		/* Liberamos los palitos en el orden inverso */
-		v_sem(semaforos[NUM_FILOSOFOS - 1]);
-		v_sem(semaforos[0]);
-
+		semV(sem_names[NUM_FILOSOFOS - 1]);
+		semV(sem_names[0]);
 		contador--;
 	}
+	
+	semdasign(sem_names[NUM_FILOSOFOS - 1]);	
+	semdasign(sem_names[0]);
+
 }
 
 void piensa(int i)
 {
 	printf("* %i esta pensando.\n", i);
 	fflush(0);
-
 	/* Aca iria un algoritmo de pensamiento */
 }
 
@@ -517,10 +530,8 @@ void come(int i)
 {
 	/* Delay, o cantidad de arroces por plato ;) */
 	int contador = 1000000;
-
 	printf("* %i esta comiendo.\n", i);
 	fflush(0);
-
 	/* Come los arroces */
 	while (contador > 0)
 		contador--;
@@ -528,12 +539,13 @@ void come(int i)
 
 int main(int argc, char* argv[])
 {
-	int i;
-
+	
+	int i;	
 	/* Creamos tantos semaforos como filosofos haya en la mesa (palitos) */
-	for (i = 0; i < NUM_FILOSOFOS; i++)
-		semaforos[i] = crear_sem(i, 1);
-
+	for (i = 0; i < NUM_FILOSOFOS; i++){
+		semcreat(sem_names[i]);
+		semset(sem_names[i], 1);
+	}
 	/* Creamos los primeros N - 1 filosofos que tienen similar */
 	/* comportamiento */
 	for (i = 0; i < NUM_FILOSOFOS - 1; i++)
@@ -544,7 +556,6 @@ int main(int argc, char* argv[])
 			exit(0);
 		}
 	}
-
 	/* Creamos el ultimo filosofo, el que tiene comportamiento distinto */
 	/* a los demas */
 	if (fork() == 0)
@@ -552,20 +563,11 @@ int main(int argc, char* argv[])
 		filosofoUltimo();
 		exit(0);
 	}
-
-	/* Esperamos a que todos los filosofos terminen de cenar y */
-	/* liberamos los semaforos */
-	for (i = 0; i < NUM_FILOSOFOS; i++)
-	{
-		wait(0);
-		liberar_sem(semaforos[i]);
-	}
-
 	return 0;
 }
 \end{verbatim}
 
-El test analiza el funcionamiento de la implementación aplicando una espera en el procedimiento \verb@come@ e indicando a cada filósofo que coma 50 veces (valor arbitrario para dar fin al programa). Una muestra de la salida obtenida es:
+El test analiza el funcionamiento de la implementación aplicando una espera en el procedimiento \verb@come@ e indicando a cada filósofo que coma 50 veces (valor arbitrario para dar fin al programa). Una muestra limitada de la salida obtenida es:
 \begin{verbatim}
 	1.  * 4 esta pensando.
 	2.  - 4 desea tomar el palito 0 (derecha)
@@ -701,11 +703,10 @@ El programa muestra los siguientes datos:
 	
 	Por último, mostraremos el código de nuestro programa, a saber:
 	\begin{verbatim}
-	/* inode.c ---- Un programa que muestra por pantalla la informacion
+/* inode.c ---- Un programa que muestra por pantalla la informacion
  * almacenada en un inodo, ya sea que este apunta a un archivo,
  * a un dispositivo de caracteres, de bloques, directorio u otro.
- * GRUPO 2 SO - UBA - FCEN - 1er Cuatrimestre de 2005
- * Alumnos: Chiocchio - Honore - Tursi
+ * Alumnos: Valdez - Di Vincenzo
  */
 
 #include <sys/types.h>
@@ -907,7 +908,7 @@ void showLastInodeModification(time_t time){
 }
 	\end{verbatim}
 
-Las fuentes de este programa se pueden encontrar en la imagen entregada en CD, en el directorio \verb@/usr/grupo/inode.c@. El ejecutable \verb@/usr/grupo/inode@, también se encuentra ya compilado en el mismo directorio; y sólo hay que correrlo pasandole como parametro el nombre de archivo (ruta absoluta o relativa) con o sin comillas, a gusto del consumidor.
+Los fuentes de este programa se pueden encontrar en la imagen entregada en CD, en el directorio \verb@/usr/srcTpFinal/inode.c@. El ejecutable \verb@/usr/grupo/inode@, también se encuentra ya compilado en el mismo directorio; y sólo hay que correrlo pasandole como parametro el nombre de archivo (ruta absoluta o relativa) con o sin comillas.
 \newpage	
 	\appendix
 
@@ -915,22 +916,21 @@ Las fuentes de este programa se pueden encontrar en la imagen entregada en CD, e
 	\label{sec:Pruebas}
 	
 	\begin{itemize}
-		\item \verb@/tests/13/resultado.txt@ - Resultados del test de Lectores-Escritores
-		\item \verb@/tests/13/resultado1.txt@ - Resultados del test de Lectores-Escritores
-		\item \verb@/usr/grupo/lect_escr.c@: - Implementación de la solución al problema con test e información del proceso paso a paso.
+		\item \verb@/tests/lectores/resultado.txt@ - Resultados del test de Lectores-Escritores
+		\item \verb@/usr/srcTpFinal/lectores.c@: - Implementación de la solución al problema con test e información del proceso paso a paso.
 	\end{itemize}
 
 	\begin{itemize}
-		\item \verb@/tests/14/res_filosofos@ - Resultados del test del problema de los filósofos chinos
-		\item \verb@/usr/grupo/filosofos.c@: Implementación de la solución al problema con test e información del proceso paso a paso.
+		\item \verb@/tests/filosofos/filosofos.out@ - Resultados del test del problema de los filósofos chinos
+		\item \verb@/usr/srcTpFinal/filosofos.c@: Implementación de la solución al problema con test e información del proceso paso a paso.
 	\end{itemize}	
 
 \begin{itemize}
-	\item \verb@/tests/15/barra.txt@: Salida del programa cuando ingresamos como parámetro el directorio raíz (\verb@/@). Este constituye un ejemplo de cómo muestra el programa el inodo de un directorio.
-	\item \verb@/tests/15/devnull.txt@: Salida del programa, mostrando el contenido de un inodo que no apunta a ningún bloque de disco sino que apunta a un dispositivo de bloques como es \verb@/dev/null@.
-	\item \verb@/tests/15/tty0.txt@: Salida de prodcons1. Salida parecida al anterior caso, sólo que para otro tipo de dispositivo, en este caso, un dispositivo de caracteres.
-	\item \verb@/tests/15/otracons.txt@: Salida del programa mostrando el inodo del archivo \verb@/etc/passwd@ por el usuario \verb@gabriel@ pero con la peculiaridad que el mismo estaba abierto para lecto-escritura desde otra consola minix. En este caso, el programa no muestra ninguna anomalía, así como tampoco la mostró en ninguno de los tests que realizamos. Aquí sólo incluimos los más significativos.
-	\item \verb@/usr/grupo/inode.c@: Implementación del programa que muestra un inodo por pantalla.
+	\item \verb@/tests/inode/barra.txt@: Salida del programa cuando ingresamos como parámetro el directorio raíz (\verb@/@). Este constituye un ejemplo de cómo muestra el programa el inodo de un directorio.
+	\item \verb@/tests/inode/devnull.txt@: Salida del programa, mostrando el contenido de un inodo que no apunta a ningún bloque de disco sino que apunta a un dispositivo de bloques como es \verb@/dev/null@.
+	\item \verb@/tests/inode/tty0.txt@: Salida de prodcons1. Salida parecida al anterior caso, sólo que para otro tipo de dispositivo, en este caso, un dispositivo de caracteres.
+	\item \verb@/tests/inode/inode.txt@: Salida del archivo mismo que estoy ejecutando.
+	\item \verb@/usr/srcTpFinal/inode.c@: Implementación del programa que muestra un inodo por pantalla.
 \end{itemize}
 \newpage
 \begin{thebibliography}{99}
