@@ -141,27 +141,44 @@ Pruebe el ash, el man, el apropos y el mined
 	\setcounter{section}{12}
 	\section{Lectores-Escritores}
 	Resuelva el problema de Lectores/Escritores con prioridad Lectores. (Tests o pruebas mencionados en Forma de entrega).
+	\subsection{Introducción}
+	\paragraph{}Este problema surgió en un principio para modelar el acceso de varios procesos a un mismo registro de una base de datos. En esta situación no es prohibitivo que varios procesos accedan al recurso simultáneamente, siempre y cuando los accesos sean solo de lectura. Diferente es el caso en el que un proceso esta accediendo al recurso para actualizarlo, ya que ningún otro proceso podrá accederlo hasta que el anterior termine de actualizar el recurso. En este problema, los procesos que acceden al recurso para modificarlo son llamados escritores y los procesos que acceden al recurso solo para lectura son llamados lectores.
 	
-	\rta
+	\paragraph{}Los lectores que intenten acceder al recurso mientras un escritor lo esta actualizando, se deberán encolar a la espera de que el escritor libere el recurso. De la misma manera se encolaran los escritores que intenten acceder a un recurso que esta siendo accedido por un lector.
+	
+	\paragraph{}El hecho de que los lectores tengan prioridad sobre los escritores implica que si un escritor está esperando para que uno o mas lectores liberen el recurso y llega otro lector, este podrá acceder al recurso aunque el escritor ya estaba encolado esperando a que se libere. Este esquema presenta la desventaja de que permite que haya inanición de escritores ya que si la tasa de arribo de lectores es menor que el tiempo de lectura del recurso, e ingresan lectores constantemente, los escritores no podrán acceder al recurso hasta que la totalidad de los lectores lo liberen.
+	
+	\paragraph{}Es fácil ver que si en este problema ni los lectores ni los escritores tiene prioridad, no tendríamos problemas de inanición para ningún tipo de proceso ya que los lectores que llegan mientras hay un escritor esperando, deberán encolarse detrás de este. La desventaja de esta solución es que permite menor concurrencia.
+	
+	\paragraph{}
+	
+	\subsection{Implementación}
 
-	Este problema nació en un principio para modelar el acceso a una base de datos. En este caso no es prohibitivo que varios procesos accedan al recurso, siempre y cuando requieran solo lectura. Ahora, si un proceso se encuentra actualizando algún dato, ningún otro debe tener acceso al mismo, ni siquiera un lector.
-Veamos el pseudocódigo que resuelve este problema:
+\paragraph{}En nuestra implementación utilizamos un archivo como recurso compartido entre los procesos. En este buffer cada proceso escritor escribirá su id de proceso. Los lectores lo abren como sólo lectura, mientras que los escritores como sólo escritura. Vale la pena aclarar que siempre comienza un escritor, para salvar el caso en que el archivo no exista y se cree uno nuevo, caso en que los lectores no tendrían nada para leer hasta que no den lugar al primer escritor.
+
+	\paragraph{}Utilizamos tres semáforos para controlar el acceso al buffer permitiendo la concurrencia únicamente entre lectores. El semáforo sem\_buffer controla el acceso al buffer propiamente dicho. El semáforo sem\_cant\_lect es usado como contador de la cantidad de lectores que están accediendo simultáneamente al buffer, cuando este contador es cero se habilita el acceso a escritores. Por ultimo el semáforo sem\_exlucion es utilizado para obtener exclusión mutua para acceder al contador cant\_lectores, ya que luego de incrementarla o decrementarla se debe leer su valor para decidir qué acción realizar, y si entre éstas dos operaciones se modificara el valor del contador, el resultado sería imprevisible.
+
+	\paragraph{}La desición de utilizar un semaforo para contabilizar la cantidad de lectores que acceden simultaneamente al buffer en vez de utilizar una variable, se tomo porque en Minix se realiza una copia de los datos compartidos al hijo, si éste último modifica algún valor solo será visible por el mismo(y sus hijos), por lo que ni su padre ni sus ``hermanos'' verán el cambio realizado. Otra posibilidad para superar éste obstáculo era usar pipes, pero preferimos por simplicidad utilizar un semáforo como contador. Se usara semV(sem\_cant\_lect) para incrementar el contador y semP(sem\_cant\_lect) para decrementarlo.
+
+\paragraph{}Para poder realizar un seguimiento de lo que sucede con cada proceso cuando interactuan mediante los semaforos, imprimimos por pantalla cada acción relevante realizada (lecturas y escrituras en el buffer, bloqueo del buffer para escritura, etc...) indentificandolas con el id del proceso que realiza cada accion.
+
+\paragraph{}A continuación presentamos un pseudocódigo de nuestra implementación. En el mismo se puede ver el manejo de los tres semaforos antes de que un proceso lector o escritor acceda al buffer.
+\paragraph{}
 \begin{verbatim}
 lector(){
-  p(exclusion)  /*exclusion mutua para acceder a cant_lectores*/
-  cant_lectores = cant_lectores + 1
-  si cant_lectores=1 entonces p(sem_buffer)
-  /*el primer lector le cierra el buffer a los escritores*/
-  v(exclusion)
+  p(sem_exclusion)  /*exclusion mutua para acceder a sem_cant_lect*/
+  p(sem_cant_lect)  /*se incrementa la cantidad de lectores*/
+  si sem_cant_lect=1 
+  		entonces p(sem_buffer)  /*se cierra el buffer para los escritores*/
+  v(sem_exclusion)
 
   leer_buffer()
 
-  p(exclusion)  /*exclusion mutua para acceder a cant_lectores*/
-  cant_lectores = cant_lectores - 1
-  si cant_lectores=0 entonces p(sem_buffer)
-  /*el ultimo lector le abre el buffer a los escritores*/
+  p(sem_exclusion)  /*exclusion mutua para acceder a sem_cant_lectores*/
+  P(sem_cant_lect)  /*se decrementa la cantidad de lectores*/
+  si sem_cant_lect=0 
+  		entonces p(sem_buffer)  /*se abre el buffer para los escritores*/
   v(exclusion)
-  usar_datos_leidos()
 }
 
 escritor(){
@@ -172,251 +189,246 @@ escritor(){
 }
 \end{verbatim}
 
-Utilizamos dos semáforos, uno para obtener exclusión mutua para acceder a la variable \verb@cant_lectores@, ya que luego de incrementarla o decrementarla se debe leer su valor para decidir qué acción realizar, y si entre éstas dos operaciones se modificara el valor del contador, el resultado sería imprevisible. El otro semáforo(\verb@sem_buffer@) habilita al escritor a modificar el buffer, para lo cual no debe haber ningún lector utilizándolo.
+	\subsection{Pruebas}
 
-Si el escritor está actualizando el contenido del buffer y llega un escritor, éste quedará bloqueado ya que \verb@cant_lectores@ será igual a 1, y si llegan más lectores también quedarán bloqueados por el semáforo \verb@exclusion@. Estos serán liberados cuando el escritor finalice.
-	Si se diera el caso en que alguien está escribiendo, a la vez que hay lectores esperando a que se termine la escritura, y llega un nuevo escritor, este deberá esperar a que todos los lectores encolados hagan su trabajo.
+\paragraph{}Para realizar las pruebas nos encontramos algunos obstáculos, sobre todo para obtener casos de concurrencia de varios lectores, y a la vez hacer posible que éstos den lugar a entrar a los escritores(no todos juntos), de modo que no trabajen primero todos los lectores y luego todos los escritores(o viceversa).
 
-Como se podrá observar, los lectores comparten una va\-ria\-ble glo\-bal(\verb@cant_lectores@).\\
-Dado que en Minix se realiza una copia de los datos compartidos al hijo, si éste último modifica algún valor solo será visible por el mismo(y sus hijos), por lo que ni su padre ni sus ``hermanos'' verán el cambio realizado. Una posibilidad para superar éste obstáculo era usar pipes, pero preferimos por simplicidad utilizar un semáforo como contador, el cual se inicializa en cero, y nunca será negativo, por lo que no bloqueará a ningún proceso. Esto se verifica fácilmente analizando la función \verb@lector()@, si reemplaza:\\
-\verb@cant_lectores = cant_lectores + 1@\\
-por\\
-\verb@v(cant_lectores)@\\
-y\\
-\verb@cant_lectores = cant_lectores - 1@\\
-por\\
-\verb@p_sem(cant_lectores)@
+\paragraph{}Para lograr esto, se crearon por un lado retardos(\emph{delays}) tanto para la lectura de buffer y como para la escritura, y por otro lado se definieron dos constantes para controlar la tasa de arribos de lectores y de escritores. Adicionalmente se agregaron dos constantes para definir la cantidad de lectores y la cantidad de escritores que intervienen en la prueba.
 
-Las pruebas fueron complicadas de realizar, sobre todo para obtener casos de concurrencia de varios lectores, y a la vez hacer posible que éstos den lugar a entrar a los escritores(no todos juntos), de modo que no trabajen primero todos los lectores y luego todos los escritores(o viceversa).
-
-Para lograr ésto, se crearon retardos(\emph{delays}) tanto a la lectura y escritura del buffer como a la tasa de arribos de lectores y escritores. Para lograr que los escritores aparezcan entre los lectores en intervalos equivalentes nos valimos de la siguiente función, que decide si un lector debe dar paso a un escritor o no:
-\begin{verbatim}
-darTiempoParaEscribir(lector_numero){
-
-	cantLectoresPorEscritor = CANT_LECTORES / CANT_ESCRITORES
-
-	mientras (lector_numero > 0){
-		    lector_numero = lector_numero - cantLectoresPorEscritor
-	}
-
-	si lector_numero = 0
-		  devolver verdadero
-	sino 
-		  devolver falso
-}
-\end{verbatim}
-
-De esta manera los escritores quedan repartidos entre los escritores en intervalos equivalentes. 
-Como buffer en común usamos un archivo, en el cual cada proceso escritor escribe su id de proceso. Los lectores lo abren como sólo lectura, mientras que los escritores como sólo escritura. Para poder realizar un seguimiento de lo que estaba sucediendo, en el archivo de resultado imprimimos cada acción relevante realizada, anteponiendo el id del proceso que imprime la línea(o sea, que realiza la acción). Vale aclarar que siempre comienza un escritor, para salvar el caso en que el archivo no exista y se cree uno nuevo, caso en que los lectores no tendrían nada para leer hasta que no den lugar al primer escritor.
-
-A continuación mostramos un ejemplo pequeño de una prueba realizada, en la que participan 5 lectores y 3 escritores:
-\begin{verbatim}
-	[62] Escribiendo dato: 62
-	[64] Cantidad de lectores= 1
-	[64] Primer lector cierra el buffer
-	[64] Leyendo dato: 62
-	[65] Escritor intenta escribir...
-	[64] Se fue el ultimo lector, abre el buffer
-	[65] Escribiendo dato: 65
-	[66] Cantidad de lectores= 1
-	[66] Primer lector cierra el buffer
-	[66] Leyendo dato: 65
-	[67] Cantidad de lectores= 2
-	[67] Leyendo dato: 65
-	[68] Escritor intenta escribir...
-	[67] Se fue el ultimo lector, abre el buffer
-	[68] Escribiendo dato: 68
-	[69] Cantidad de lectores= 1
-	[69] Primer lector cierra el buffer
-	[69] Leyendo dato: 68
-	[70] Cantidad de lectores= 2
-	[70] Leyendo dato: 68
-	[70] Se fue el ultimo lector, abre el buffer
-\end{verbatim}
-
-	En este ejemplo se ve claramente como hay concurrencia de lectores, y como el escritor espera a que éstos terminen de leer antes de modificar el buffer.
-
-	Para analizar diferentes situaciones, se realizaron múltiples pruebas modificando el valor de las siguientes variables globales:
 		\begin{enumerate}
 			\item \verb@CANT_LECTORES@: cantidad total de lectores
 			\item \verb@CANT_ESCRITORES@: cantidad total de escritores
 			\item \verb@DELAY_ENTRE_ESCRITORES@: tiempo de espera entre el ingreso de un escritor y el siguiente
-			\item \verb@DELAY_ENTRE_LECTORES@: tiempo de espera entre el ingreso de un lector y el si\-guien\-te
+			\item \verb@DELAY_ENTRE_LECTORES@: tiempo de espera entre el ingreso de un lector y el siguiente
 			\item \verb@DELAY_ESCRIBIR@: tiempo que le toma a un escritor modificar el buffer
 			\item \verb@DELAY_LEER@: tiempo que le toma a un lector leer el buffer
 		\end{enumerate}
-		
-		Esta implementación permite que haya inanición de escritores si la tasa de arribo de lectores es menor que el tiempo de lectura del buffer, e ingresan lectores constantemente. Para evitar ésto los lectores que llegan mientras hay un escritor esperando, deberían encolarse detrás de éste. La desventaja de esta solución es que permite menor concurrencia.
+
+\paragraph{}Haciendo pruebas con diferentes valores para las variables anteriores, se pudo lograr que los escritores queden repartidos entre los lectores.
+
+
+\paragraph{}A continuación mostramos la salida (con las líneas numeradas) de una de las pruebas realizadas en la que intervienen seis lectores y tres escritores.
+\begin{verbatim}
+ 1- El proceso 37 escribe el dato '37' en el buffer.
+ 2- El proceso 39 intenta escribir. Cantidad de lectores: 0.
+ 3- El proceso 39 escribe el dato '39' en el buffer.
+ 4- El proceso 40 intenta leer. Cantidad de lectores: 1.
+ 5- El proceso 40 bloquea el buffer para escritura.
+ 6- El proceso 40 lee el dato '39' del buffer.
+ 7- El proceso 41 intenta leer. Cantidad de lectores: 2.
+ 8- El proceso 41 lee el dato '39' del buffer.
+ 9- El proceso 42 intenta escribir. Cantidad de lectores: 1.
+10- El proceso 43 intenta leer. Cantidad de lectores: 2.
+11- El proceso 43 lee el dato '39' del buffer.
+12- El proceso 44 intenta leer. Cantidad de lectores: 2.
+13- El proceso 44 lee el dato '39' del buffer.
+14- El proceso 45 intenta escribir. Cantidad de lectores: 1.
+15- El proceso 46 intenta leer. Cantidad de lectores: 2.
+16- El proceso 46 lee el dato '39' del buffer.
+17- El proceso 47 intenta leer. Cantidad de lectores: 2.
+18- El proceso 47 lee el dato '39' del buffer.
+19- El proceso 47 desbloquea el buffer para escritura.
+20- El proceso 42 escribe el dato '42' en el buffer.
+21- El proceso 45 escribe el dato '45' en el buffer.
+\end{verbatim}
+
+	\paragraph{}En este ejemplo se ven claramente varios aspectos esperados de esta implementación. Por un lado, vemos que se da la concurrencia entre varios lectores al buffer. Por ejemplo, en las líneas 7 y 8 se ve el acceso del lector 41 al buffer aún cuando el lector 40 se encuentra leyendo del buffer. Por otro lado, ve puede ver el bloqueo de la escritura en el buffer cuando un lector esta accediéndolo. Por ejemplo, en la línea 14 el escritor 45 intenta escribir cuando hay un lector accediendo al buffer, por lo que queda bloqueado hasta que el buffer es liberado.
 	
-Nuestra implementación que resuelve el problema de lectores-escritores con prioridad lectores es la siguiente:
+	\paragraph{}La prueba anterior también muestra otro aspecto muy importante, que es el hecho de que los lectores tienen prioridad sobre los escritores. Si observamos la linea 9 el escritor 42 intenta escribir en el buffer pero queda bloqueado hasta la linea 20, ya que hay un lector accediendo al buffer. Sin embargo, desde que este escritor intenta acceder al buffer hasta que finalmente escribe en él, los lectores 43, 44, 46 y 47 acceden al buffer aun cuando su intento de acceso fue posterior al del escritor encolado. 
+		
+
+	\subsection{Código}
+
+\paragraph{}A continuación presentamos el código de nuestra implementación del problema de Lectores/Escritores, junto con la prueba citada en la sección anterior.
 
 \begin{verbatim}
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <fcntl.h>
+#include <semaforo.h>
+#include <lib.h>
 
 /*DELAYS*/
-
 #define DELAY_ENTRE_ESCRITORES 10000000
-#define DELAY_ENTRE_LECTORES 1000000
-#define DELAY_ESCRIBIR 1
-#define DELAY_LEER 2000000
+#define DELAY_ENTRE_LECTORES 10000000
+#define DELAY_ESCRIBIR 1000000
+#define DELAY_LEER 10000000
 
-#define SEM_EXCLUSION 1
-#define SEM_BUFFER 2
-#define SEM_CANT_LECTORES 3
-
-const int CANT_LECTORES = 5;
-const int CANT_ESCRITORES = 2;
-
+const int CANT_LECTORES = 6;
+const int CANT_ESCRITORES = 3;
 const char ARCHIVO[] = "buffer";
+
+char sem_buffer[M3_STRING]="sem_buffer";
+char sem_exclusion[M3_STRING]="sem_exclusion";
+char sem_cant_lect[M3_STRING]="sem_cant_lect";
 
 void leer_buffer(void);
 void escribir_buffer(void);
 void delay(int valor);
 
-void lector(void){
-	/*Si ya existen los semáforos no actualiza sus valores*/
-	int exclusion = crear_sem(SEM_EXCLUSION,1);
-	int sem_buffer = crear_sem(SEM_BUFFER,1);
-	int cant_lectores = crear_sem(SEM_CANT_LECTORES, 0);
-
-	p_sem(exclusion);/* entro en region critica */
-	v_sem(cant_lectores);/* incremento la cantidad de lectores */
-
-	printf("[%i] Cantidad de lectores=%i\n",getpid(),val_sem(cant_lectores));
+void lector(void)
+{
+	semP(sem_exclusion);/* entro en region critica */
+	semV(sem_cant_lect);/* incremento la cantidad de lectores */
 	fflush(0);
 
-  /* el primer lector cierra el buffer*/
-	if(val_sem(cant_lectores) == 1){
-  		p_sem(sem_buffer);
-	  	printf("[%i] Primer lector cierra el buffer\n", getpid());
-		   fflush(0);
+	/* el primer lector cierra el buffer*/
+	if(semget(sem_cant_lect) == 1)
+ 	{
+		semP(sem_buffer);
+		fflush(0);
 	}
-	v_sem(exclusion);/* salgo de region critica */
+
+	semV(sem_exclusion);/* salgo de region critica */
 
 	leer_buffer();
 
-	p_sem(exclusion);	/* entro a una nueva region critica */
-	p_sem(cant_lectores);	/*un lector menos,nunca sera negativo*/
+	semP(sem_exclusion); /* entro a una nueva region critica */
+	semP(sem_cant_lect); /*un lector menos,nunca sera negativo*/
 
-  /* si no hay mas lectores abro el buffer */
-	if(val_sem(cant_lectores) <= 0){
-  		printf("[%i] Se fue el ultimo lector, abre el buffer\n", getpid());
-	  	fflush(0);
-		  v_sem(sem_buffer);
+	/* si no hay mas lectores abro el buffer */
+	if(semget(sem_cant_lect) <= 0)
+	{
+		fflush(0);
+		semV(sem_buffer);
 	}
-	v_sem(exclusion);
+
+	semV(sem_exclusion);
 }
 
-void escritor(void){
-  	int sem_buffer = crear_sem(SEM_BUFFER,1);
-	  printf("[%i] Escritor intenta escribir...\n", getpid());
-	  fflush(0);
-	  p_sem(sem_buffer);
-	  escribir_buffer();
-	  v_sem(sem_buffer);
+void escritor(void)
+{
+	fflush(0); 
+	semP(sem_buffer);
+	escribir_buffer();
+	semV(sem_buffer);
 }
 
-int crear_escritores(void){
-	  int i=0;
-	  for(i=0 ; i < CANT_ESCRITORES ; i++){
-		    if(fork()==0){
-  			  escritor();
-	  		  _exit(0);
-		    }else{
-  		  	delay(DELAY_ENTRE_ESCRITORES);
-		    }
-	  }
+int crear_escritores(void)
+{
+	int i=0;
+	semset(sem_buffer ,1);
+	semset(sem_exclusion ,1);
+	semset(sem_cant_lect ,0);
 
-	  for(i=0; i< CANT_ESCRITORES; i++) wait(0);
+	for(i=0 ; i < CANT_ESCRITORES ; i++)
+  {
+		if(fork()==0)
+		{
+			semasing(sem_buffer);
+			semasing(sem_exclusion);
+			semasing(sem_cant_lect);
 
-  	return(0);
+			escritor();
+
+			semdasing(sem_buffer);
+			semdasing(sem_exclusion);
+			semdasing(sem_cant_lect);
+
+			exit(0);
+		}
+		else
+		{
+			delay(DELAY_ENTRE_ESCRITORES);
+		}
+	}
+	for(i=0; i< CANT_ESCRITORES; i++) wait(0);
+	return(0);
 }
 
-int darTiempoParaEscribir(int nro_lector){
-	  int cantLectoresPorEscritor = CANT_LECTORES / CANT_ESCRITORES;
-
-	  while(nro_lector>0){
-  		nro_lector = nro_lector - cantLectoresPorEscritor;
-	  }
-
-	  return nro_lector==0;
+int darTiempoParaEscribir(int nro_lector)
+{
+	int cantLectoresPorEscritor = CANT_LECTORES / CANT_ESCRITORES;
+	while(nro_lector>0)
+	{
+		nro_lector = nro_lector - cantLectoresPorEscritor;
+	}
+	return nro_lector==0;
 }
 
-int crear_lectores(void){
-	  int i=0;
-	  for(i=0; i< CANT_LECTORES; i++){
-      if(fork()==0){
-        lector();
-        _exit(0);
-      }
-      if(darTiempoParaEscribir(i)){
-        delay(9000000);
-      }else{
-        delay(DELAY_ENTRE_LECTORES);
-      }
-    }
+int crear_lectores(void)
+{
+	int i=0;
+	for(i=0; i< CANT_LECTORES; i++)
+	{
+		if(fork()==0)
+		{
+			semasing(sem_buffer);
+			semasing(sem_exclusion);
+			semasing(sem_cant_lect);
 
-  	for(i=0; i< CANT_LECTORES; i++) wait(0);
+			lector();
 
-	  return 0;
+			semdasing(sem_buffer);
+			semdasing(sem_exclusion);
+			semdasing(sem_cant_lect);
+
+			exit(0);
+		}
+		else
+		{
+			delay(DELAY_ENTRE_LECTORES);
+		}
+	}
+	for(i=0; i< CANT_LECTORES; i++) wait(0);
+	return 0;
 }
 
-int main(int argc, char* argv[]){
-  	int i = 0;
+int main(int argc, char* argv[])
+{
+	int i = 0;
+	open(ARCHIVO, O_CREAT);
+	escribir_buffer();
 
-  	open(ARCHIVO, O_CREAT);
-  	escribir_buffer();
+	semcreat(sem_buffer)
+	semcreat(sem_cant_lect)
+	semcreat(sem_exclusion)
 
-  	if (fork() == 0)
-  	{
-        crear_escritores();
-        _exit(0);
-  	}
-    else
-    {
-        crear_lectores();
-    }
-
-    wait(0);
-
-	  /*Uso crear_sem() para no usar variables globales,*/
-	  /*asi los referencio por su nombre*/
-	  liberar_sem(crear_sem(SEM_EXCLUSION,9));
-	  liberar_sem(crear_sem(SEM_BUFFER,9));
-	  liberar_sem(crear_sem(SEM_CANT_LECTORES,9));
-
-  	return 0;
+	if (fork() == 0)
+	{
+		crear_Lectores();
+		exit(0);
+	}
+	else
+	{
+		crear_escritores();
+	  exit(0);
+	}
+  wait(0);
+	return 0;
 }
 
-void escribir_buffer(void){
-  	int fd = open(ARCHIVO, O_WRONLY);
-  	int pid = getpid();
-  	write(fd, &pid, 3);
-  	close(fd);
-  	printf("[%i] Escribiendo dato: %i\n", pid, pid);
-  	fflush(0);
-  	delay(DELAY_ESCRIBIR);
+void escribir_buffer(void)
+{
+	int fd = open(ARCHIVO, O_WRONLY);
+	int pid = getpid();
+	write(fd, &pid, 3);
+	close(fd);
+	fflush(0);
+	delay(DELAY_ESCRIBIR);
 }
 
-void leer_buffer(void){
-  	int fd = open(ARCHIVO, O_RDONLY);
-  	int leido;
-  	read(fd, &leido, 3);
-  	close(fd);
-  	printf("[%i] Leyendo dato: %i\n", getpid(), leido);
-  	fflush(0);
-  	delay(DELAY_LEER);
+void leer_buffer(void)
+{
+	int fd = open(ARCHIVO, O_RDONLY);
+	int leido;
+	read(fd, &leido, 3);
+	close(fd);
+	fflush(0);
+	delay(DELAY_LEER);
 }
 
-void delay(int valor){
-	  while(valor-- > 0);
+void delay(int valor)
+{
+	while(valor-- > 0);
 }
-\end{verbatim}
-	
+
+\end{verbatim}	
 	
 \newpage
 	% EJERCICIO 14
@@ -432,7 +444,7 @@ el principal problema aquí es que puede ocurrir una espera circular. Si consegui
 
 %de aca en adelante se debe modificar
 
-En nuestra implementación los filósofos se numeran del 0 al 4, al igual que los palitos, siendo el \emph{i-ésimo} palito el que se encuentra a la izquierda del filósofo $i$ y el $(i+1)$-ésimo palito el que se encuentra a su derecha (en el caso del filósofo 0 el de su izquierda es el palito 4, y en el caso del filósofo 4 el palito a su derecha es el 0).
+En nuestra implementación los filósofos se numeran del 0 al 4, al igual que los palitos, siendo el \emph{i-ésimo} palito el que se encuentra a la izquierda del filósofo $i$ y el $(i+1)$-ésimo palito el que se encuentra a su derecha (en el caso del filósofo 0 el de su izquierda es el palito 4, y en el caso del filósofo 4 el palito a su derecha es el 0). Los semaforos se identifican con letras desde la A en adelande, segun se necesite. Se asignan el orden al $i$-esimo palillo.
 
 El código de nuestra resolución del problema de los filósofos chinos es el siguiente (omitimos los \verb@printf@ que muestran el proceso paso a paso para mayor claridad):
 
@@ -470,17 +482,13 @@ void filosofoNoUltimo(int i)
 		piensa(i);
 		/* Tomamos primero el palito de la izquierda y luego el */
 		/* de la derecha */
-		printf("- %i quiere tomar el palito de la izquierda \n",i);
 		semP(sem_names[i]);
-		printf("- %i quiere tomar el palito de la derecha \n",i);
 		semP(sem_names[i+1]);
 		
 		come(i);
-		/* Liberamos los palitos en el orden inverso */
+		
 		semV(sem_names[i + 1]);
-		printf("- %i dejo el palito de la derecha \n",i);
 		semV(sem_names[i]);
-		printf("- %i dejo el palito de la izquierda \n",i);
 		
 		contador--;
  	}
@@ -528,7 +536,7 @@ void piensa(int i)
 
 void come(int i)
 {
-	/* Delay, o cantidad de arroces por plato ;) */
+	/* Delay, o cantidad de arroces por plato :P */
 	int contador = 1000000;
 	printf("* %i esta comiendo.\n", i);
 	fflush(0);
@@ -644,9 +652,8 @@ El programa muestra los siguientes datos:
 \end{itemize}
 
 	\subsection{Implementación}
-	Para implementar este programa la dificultad más importante que encontramos fue encontrar la manera de poder acceder a la estructura interna del inodo. Supusimos que por ser algo intrínseco al \emph{file system}, ese ítem era un buen punto de partida para la investigación.
 	
-	Recurrimos al libro de Tanenbaum \cite{tanenbaum} e investigando descubrimos que existe un \emph{system call} útil para el fin que estábamos buscando. Dicho \emph{system call} se llama \verb@stat@ y posee la siguiente sintáxis:
+	Recurrimos al libro de Tanenbaum \cite{tanenbaum} e investigando descubrimos que existe un \emph{system call} que nos era útil para la finalidad de nuestro programa. Dicho \emph{system call} se llama \verb@stat@ y posee la siguiente sintáxis:
 	\begin{verbatim}
 		int stat(const char *path, struct stat *buf)
 	\end{verbatim}
@@ -667,7 +674,7 @@ El programa muestra los siguientes datos:
 	    time_t  st_ctime; /* hora de la ultima modificacion del inodo */
 	};              
 	\end{verbatim}
-	Dadas estas herramientas, lo demas es sólo codificar la salida por pantalla de los datos, considerando la estructura interna de aquellos datos que están adentro del \verb@struct@ para poder utilizar correctamente la arcaica función \verb@printf@. Pero todavía quedaban un par de escollos:
+	Dadas estas herramientas, lo demas es sólo codificar la salida por pantalla de los datos, considerando la estructura interna de aquellos datos que están adentro del \verb@struct@ para poder utilizar correctamente la función \verb@printf@. Pero todavía quedan algunos problemas a resolver:
 	\begin{itemize}
 		\item cómo mostrar correctamente las tres horas de tipo \verb@time_t@ (un renombre de \verb@long@).
 		\item cómo mostrar los permisos de archivo para \emph{owner}, \emph{group} y \emph{other}, siendo que estos datos están ``ocultos'' en la variable \verb@st_mode@.
@@ -908,7 +915,7 @@ void showLastInodeModification(time_t time){
 }
 	\end{verbatim}
 
-Los fuentes de este programa se pueden encontrar en la imagen entregada en CD, en el directorio \verb@/usr/srcTpFinal/inode.c@. El ejecutable \verb@/usr/grupo/inode@, también se encuentra ya compilado en el mismo directorio; y sólo hay que correrlo pasandole como parametro el nombre de archivo (ruta absoluta o relativa) con o sin comillas.
+Los fuentes de este programa se pueden encontrar en la imagen entregada en CD, en el directorio \verb@/usr/srcTpFinal/inode/inode.c@. El ejecutable \verb@/usr/srcTpFinal/inode/inode@, también se encuentra ya compilado en el mismo directorio; y sólo hay que correrlo pasandole como parametro el nombre de archivo (ruta absoluta o relativa) con o sin comillas.
 \newpage	
 	\appendix
 
@@ -916,21 +923,20 @@ Los fuentes de este programa se pueden encontrar en la imagen entregada en CD, e
 	\label{sec:Pruebas}
 	
 	\begin{itemize}
-		\item \verb@/tests/lectores/resultado.txt@ - Resultados del test de Lectores-Escritores
-		\item \verb@/usr/srcTpFinal/lectores.c@: - Implementación de la solución al problema con test e información del proceso paso a paso.
+		\item \verb@/tests/lectores/lectores.out@ - Resultados del test de Lectores-Escritores
+		\item \verb@/usr/srcTpFinal/lectores/lectores.c@: - Implementación de la solución al problema con test e información del proceso paso a paso.
 	\end{itemize}
 
 	\begin{itemize}
 		\item \verb@/tests/filosofos/filosofos.out@ - Resultados del test del problema de los filósofos chinos
-		\item \verb@/usr/srcTpFinal/filosofos.c@: Implementación de la solución al problema con test e información del proceso paso a paso.
+		\item \verb@/usr/srcTpFinal/filosofos/filosofos.c@: Implementación de la solución al problema con test e información del proceso paso a paso.
 	\end{itemize}	
 
 \begin{itemize}
 	\item \verb@/tests/inode/barra.txt@: Salida del programa cuando ingresamos como parámetro el directorio raíz (\verb@/@). Este constituye un ejemplo de cómo muestra el programa el inodo de un directorio.
 	\item \verb@/tests/inode/devnull.txt@: Salida del programa, mostrando el contenido de un inodo que no apunta a ningún bloque de disco sino que apunta a un dispositivo de bloques como es \verb@/dev/null@.
-	\item \verb@/tests/inode/tty0.txt@: Salida de prodcons1. Salida parecida al anterior caso, sólo que para otro tipo de dispositivo, en este caso, un dispositivo de caracteres.
 	\item \verb@/tests/inode/inode.txt@: Salida del archivo mismo que estoy ejecutando.
-	\item \verb@/usr/srcTpFinal/inode.c@: Implementación del programa que muestra un inodo por pantalla.
+	\item \verb@/usr/srcTpFinal/inode/inode.c@: Implementación del programa que muestra un inodo por pantalla.
 \end{itemize}
 \newpage
 \begin{thebibliography}{99}
